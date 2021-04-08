@@ -1,4 +1,4 @@
-package haokan
+package acfun
 
 import (
 	"testing"
@@ -15,9 +15,8 @@ func TestDownload(t *testing.T) {
 		{
 			name: "normal test",
 			args: test.Args{
-				URL:   "https://haokan.baidu.com/v?vid=10057409468467026969",
-				Title: "听歌学英语小学篇（6）：my new pen pal",
-				Size:  2027354,
+				URL:   "https://www.acfun.cn/bangumi/aa6000686_36188_1704167",
+				Title: "瑞克和莫蒂 第四季 ：第2话 注释版",
 			},
 		},
 	}

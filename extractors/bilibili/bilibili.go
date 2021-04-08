@@ -23,7 +23,7 @@ const referer = "https://www.bilibili.com"
 
 var utoken string
 
-func genAPI(aid, cid, quality int, bangumi bool, cookie string) (string, error) {
+func genAPI(aid, cid, quality int, bvid string, bangumi bool, cookie string) (string, error) {
 	var (
 		err        error
 		baseAPIURL string
@@ -54,14 +54,14 @@ func genAPI(aid, cid, quality int, bangumi bool, cookie string) (string, error) 
 		// qn=0 flag makes the CDN address different every time
 		// quality=120(4k) is the highest quality so far
 		params = fmt.Sprintf(
-			"cid=%d&bvid=&qn=%d&type=&otype=json&fourk=1&fnver=0&fnval=16",
-			cid, quality,
+			"cid=%d&bvid=%s&qn=%d&type=&otype=json&fourk=1&fnver=0&fnval=16",
+			cid, bvid, quality,
 		)
 		baseAPIURL = bilibiliBangumiAPI
 	} else {
 		params = fmt.Sprintf(
-			"avid=%d&cid=%d&bvid=&qn=%d&type=&otype=json&fourk=1&fnver=0&fnval=16",
-			aid, cid, quality,
+			"avid=%d&cid=%d&bvid=%s&qn=%d&type=&otype=json&fourk=1&fnver=0&fnval=16",
+			aid, cid, bvid, quality,
 		)
 		baseAPIURL = bilibiliAPI
 	}
@@ -118,6 +118,7 @@ type bilibiliOptions struct {
 	bangumi  bool
 	aid      int
 	cid      int
+	bvid     string
 	page     int
 	subtitle string
 }
@@ -132,9 +133,11 @@ func extractBangumi(url, html string, extractOption types.Options) ([]*types.Dat
 	if !extractOption.Playlist {
 		aid := data.EpInfo.Aid
 		cid := data.EpInfo.Cid
-		if aid <= 0 || cid <= 0 {
+		bvid := data.EpInfo.BVid
+		if aid <= 0 || cid <= 0 || bvid == "" {
 			aid = data.EpList[0].Aid
 			cid = data.EpList[0].Cid
+			bvid = data.EpList[0].BVid
 		}
 		options := bilibiliOptions{
 			url:     url,
@@ -142,6 +145,7 @@ func extractBangumi(url, html string, extractOption types.Options) ([]*types.Dat
 			bangumi: true,
 			aid:     aid,
 			cid:     cid,
+			bvid:    bvid,
 		}
 		return []*types.Data{bilibiliDownload(options, extractOption)}, nil
 	}
@@ -166,6 +170,7 @@ func extractBangumi(url, html string, extractOption types.Options) ([]*types.Dat
 			bangumi: true,
 			aid:     u.Aid,
 			cid:     u.Cid,
+			bvid:    u.BVid,
 		}
 		go func(index int, options bilibiliOptions, extractedData []*types.Data) {
 			defer wgp.Done()
@@ -220,6 +225,7 @@ func extractNormalVideo(url, html string, extractOption types.Options) ([]*types
 			url:  url,
 			html: html,
 			aid:  pageData.Aid,
+			bvid: pageData.BVid,
 			cid:  page.Cid,
 			page: p,
 		}
@@ -247,6 +253,7 @@ func extractNormalVideo(url, html string, extractOption types.Options) ([]*types
 			url:      url,
 			html:     html,
 			aid:      pageData.Aid,
+			bvid:     pageData.BVid,
 			cid:      u.Cid,
 			subtitle: u.Part,
 			page:     u.Page,
@@ -275,6 +282,11 @@ func (e *extractor) Extract(url string, option types.Options) ([]*types.Data, er
 	if err != nil {
 		return nil, err
 	}
+
+	// set thread number to 1 manually to avoid http 412 error
+	option.ThreadNumber = 1
+	fmt.Printf("Warning: Multi thread download is no longer supported by BiliBili, use single thread instead.\n")
+
 	if strings.Contains(url, "bangumi") {
 		// handle bangumi
 		return extractBangumi(url, html, option)
@@ -302,7 +314,7 @@ func bilibiliDownload(options bilibiliOptions, extractOption types.Options) *typ
 	// Get "accept_quality" and "accept_description"
 	// "accept_description":["高清 1080P","高清 720P","清晰 480P","流畅 360P"],
 	// "accept_quality":[120,112,80,48,32,16],
-	api, err := genAPI(options.aid, options.cid, 120, options.bangumi, extractOption.Cookie)
+	api, err := genAPI(options.aid, options.cid, 120, options.bvid, options.bangumi, extractOption.Cookie)
 	if err != nil {
 		return types.EmptyData(options.url, err)
 	}
@@ -332,9 +344,9 @@ func bilibiliDownload(options bilibiliOptions, extractOption types.Options) *typ
 		for _, stream := range dashData.Streams.Audio {
 			if stream.Bandwidth > bandwidth {
 				audioID = stream.ID
+				bandwidth = stream.Bandwidth
 			}
 			audios[stream.ID] = stream.BaseURL
-			bandwidth = stream.Bandwidth
 		}
 		s, err := request.Size(audios[audioID], referer)
 		if err != nil {
@@ -353,7 +365,7 @@ func bilibiliDownload(options bilibiliOptions, extractOption types.Options) *typ
 		if _, ok := streams[strconv.Itoa(q)]; ok {
 			continue
 		}
-		api, err := genAPI(options.aid, options.cid, q, options.bangumi, extractOption.Cookie)
+		api, err := genAPI(options.aid, options.cid, q, options.bvid, options.bangumi, extractOption.Cookie)
 		if err != nil {
 			return types.EmptyData(options.url, err)
 		}
@@ -378,12 +390,12 @@ func bilibiliDownload(options bilibiliOptions, extractOption types.Options) *typ
 		if err != nil {
 			return types.EmptyData(options.url, err)
 		}
+		if audioPart != nil {
+			parts = append(parts, audioPart)
+		}
 		var size int64
 		for _, part := range parts {
 			size += part.Size
-		}
-		if audioPart != nil {
-			parts = append(parts, audioPart)
 		}
 		streams[strconv.Itoa(q)] = &types.Stream{
 			Parts:   parts,
